@@ -16,7 +16,7 @@ namespace BrunoMikoski.AnimationSequencer
     public class AnimationSequencerCustomEditor : Editor
     {
         #region Variables
-        // Static variables and properties 
+        // Static variables and properties
         private static AnimationStepAdvancedDropdown cachedAnimationStepsDropdown;
         private static AnimationStepAdvancedDropdown AnimationStepAdvancedDropdown
         {
@@ -546,7 +546,7 @@ namespace BrunoMikoski.AnimationSequencer
             EditorGUI.PropertyField(rect, element, new GUIContent(""), false);
 
             EditorGUI.indentLevel = baseIdentLevel;
-            // DrawContextInputOnItem(element, index, rect);
+            DrawContextInputOnItem(element, index, rect);
 
             // Verify if the last expanded step changed.
             if (AnimationSequencerPreferences.GetInstance().OnlyOneStepExpandedWhileEditing && showStepsPanel && !DOTweenEditorPreview.isPreviewing)
@@ -734,11 +734,8 @@ namespace BrunoMikoski.AnimationSequencer
             if (rect1.Contains(current.mousePosition) && current.type == EventType.ContextClick)
             {
                 GenericMenu menu = new GenericMenu();
-                menu.AddItem(new GUIContent("Copy Values"), false, () => ContextClickUtils.SetSource(element));
-                if (ContextClickUtils.CanPasteToTarget(element))
-                    menu.AddItem(new GUIContent("Paste Values"), false, () => ContextClickUtils.ApplySourceToTarget(element));
-                else
-                    menu.AddDisabledItem(new GUIContent("Paste Values"));
+                menu.AddItem(new GUIContent("Copy"), false, () => CopyItem(index));
+                menu.AddItem(new GUIContent("Paste (Overwrite)"), false, () => PasteItem(index));
                 menu.AddSeparator("");
                 menu.AddItem(new GUIContent("Duplicate Item"), false, () => DuplicateItem(index));
                 menu.AddItem(new GUIContent("Delete Item"), false, () => RemoveItemAtIndex(index));
@@ -753,13 +750,49 @@ namespace BrunoMikoski.AnimationSequencer
             reorderableList.serializedProperty.serializedObject.ApplyModifiedProperties();
         }
 
+        private void CopyItem(int index)
+        {
+            var source = this.reorderableList.serializedProperty.GetArrayElementAtIndex(index);
+            EditorGUIUtility.systemCopyBuffer = "##" + source.managedReferenceFullTypename + "|" + JsonUtility.ToJson(source.managedReferenceValue);
+        }
+
+        private void PasteItem(int index)
+        {
+            string source = EditorGUIUtility.systemCopyBuffer;
+
+            if (!source.StartsWith("##")) {
+                return;
+            }
+
+            var splitSource = source.Substring(2).Split("|", 2);
+
+            if (splitSource.Length != 2) {
+                return;
+            }
+
+            var typeData = splitSource[0].Split(" ", 2);
+
+            var asm = Assembly.Load(typeData[0]);
+            var sourceType = asm.GetType(typeData[1]);
+
+            if (sourceType == null || !sourceType.IsSubclassOf(typeof(AnimationStepBase))) {
+                return;
+            }
+
+            var destination = this.reorderableList.serializedProperty.GetArrayElementAtIndex(index);
+            destination.managedReferenceValue = JsonUtility.FromJson(splitSource[1], sourceType);
+            destination.serializedObject.ApplyModifiedProperties();
+        }
+
         private void DuplicateItem(int index)
         {
-            SerializedProperty sourceSerializedProperty = reorderableList.serializedProperty.GetArrayElementAtIndex(index);
+            var source = reorderableList.serializedProperty.GetArrayElementAtIndex(index);
+            var json = JsonUtility.ToJson(source.managedReferenceValue);
+
             reorderableList.serializedProperty.InsertArrayElementAtIndex(index + 1);
-            SerializedProperty source = reorderableList.serializedProperty.GetArrayElementAtIndex(index + 1);
-            ContextClickUtils.CopyPropertyValue(sourceSerializedProperty, source);
-            source.serializedObject.ApplyModifiedProperties();
+            SerializedProperty destination = reorderableList.serializedProperty.GetArrayElementAtIndex(index + 1);
+            destination.managedReferenceValue = JsonUtility.FromJson(json, source.managedReferenceValue.GetType());
+            destination.serializedObject.ApplyModifiedProperties();
         }
         #endregion
 
@@ -994,7 +1027,7 @@ namespace BrunoMikoski.AnimationSequencer
 
             stepsAnimationData = new StepAnimationData[sequencerController.AnimationSteps.Length];
 
-            //Assign the main sequence duration and "StartTime" to each step. 
+            //Assign the main sequence duration and "StartTime" to each step.
             for (int i = 0; i < sequencerController.AnimationSteps.Length; i++)
             {
                 float startTime = startTimeSteps[i];
